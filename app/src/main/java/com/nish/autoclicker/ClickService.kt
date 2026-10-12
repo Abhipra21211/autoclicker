@@ -178,17 +178,58 @@ class ClickService : AccessibilityService() {
             stopClicking(); removeOverlay(); disableSelf()
         }
 
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(startBtn); addView(moveBtn); addView(dotsBtn)
+            addView(label); addView(seek); addView(closeBtn)
+        }
+        val handle = TextView(this).apply {
+            text = "DRAG HERE"
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(12), dp(6), dp(12))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val minBtn = Button(this).apply {
+            text = "-"
+            minWidth = 0
+            minimumWidth = dp(44)
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(handle); addView(minBtn)
+        }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xCC000000.toInt())
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            addView(startBtn); addView(moveBtn); addView(dotsBtn)
-            addView(label); addView(seek); addView(closeBtn)
+            setPadding(dp(8), dp(4), dp(8), dp(8))
+            addView(header); addView(body)
         }
         val boxParams = WindowManager.LayoutParams(
             dp(150), WindowManager.LayoutParams.WRAP_CONTENT, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.BOTTOM or Gravity.START; x = dp(4); y = dp(40) }
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = dp(4); y = dm.heightPixels / 2 }
+
+        var px = 0; var py = 0; var ptx = 0f; var pty = 0f
+        handle.setOnTouchListener { _, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> { px = boxParams.x; py = boxParams.y; ptx = e.rawX; pty = e.rawY }
+                MotionEvent.ACTION_MOVE -> {
+                    boxParams.x = px + (e.rawX - ptx).toInt()
+                    boxParams.y = py + (e.rawY - pty).toInt()
+                    wm.updateViewLayout(box, boxParams)
+                }
+            }
+            true
+        }
+        minBtn.setOnClickListener {
+            val hide = body.visibility == View.VISIBLE
+            body.visibility = if (hide) View.GONE else View.VISIBLE
+            minBtn.text = if (hide) "+" else "-"
+            boxParams.width = if (hide) dp(130) else dp(150)
+            wm.updateViewLayout(box, boxParams)
+        }
         panel = box
         wm.addView(box, boxParams)
     }

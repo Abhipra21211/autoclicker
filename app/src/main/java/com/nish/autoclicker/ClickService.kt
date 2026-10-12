@@ -27,7 +27,8 @@ class ClickService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
     private var moveMode = false
-    private var intervalMs = 50L
+    private var intervalMs = 5L
+    private val BATCH = 10
 
     private val baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -55,10 +56,13 @@ class ClickService : AccessibilityService() {
     }
 
     private fun click(x: Float, y: Float) {
-        val path = Path().apply { moveTo(x, y) }
-        val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 1))
-            .build()
+        val builder = GestureDescription.Builder()
+        val count = minOf(BATCH, GestureDescription.getMaxStrokeCount())
+        for (i in 0 until count) {
+            val path = Path().apply { moveTo(x, y) }
+            builder.addStroke(GestureDescription.StrokeDescription(path, i * intervalMs, 1))
+        }
+        val gesture = builder.build()
         val cb = object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) { next() }
             override fun onCancelled(g: GestureDescription?) { next() }
@@ -67,7 +71,7 @@ class ClickService : AccessibilityService() {
     }
 
     private fun next() {
-        if (running) handler.postDelayed(tick, intervalMs)
+        if (running) handler.post(tick)
     }
 
     private fun stopClicking() {
@@ -114,13 +118,13 @@ class ClickService : AccessibilityService() {
         // Control panel
         val startBtn = Button(this).apply { text = "START" }
         val moveBtn = Button(this).apply { text = "MOVE: OFF" }
-        val label = TextView(this).apply { text = "50 ms"; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
-        val seek = SeekBar(this).apply { max = 75; progress = 25 }
+        val label = TextView(this).apply { text = "5 ms"; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        val seek = SeekBar(this).apply { max = 95; progress = 0 }
         val closeBtn = Button(this).apply { text = "CLOSE" }
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                intervalMs = (p + 25).toLong()
+                intervalMs = (p + 5).toLong()
                 label.text = "$intervalMs ms"
             }
             override fun onStartTrackingTouch(s: SeekBar?) {}

@@ -27,7 +27,7 @@ class ClickService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
     private var moveMode = false
-    private var intervalMs = 5L
+    private var intervalMs = 25L
     private var dotCount = 10
     private var token = 0
 
@@ -61,7 +61,7 @@ class ClickService : AccessibilityService() {
         for (i in 0 until n) {
             val lp = dotParams[i]
             val path = Path().apply { moveTo(lp.x + lp.width / 2f, lp.y + lp.height / 2f) }
-            builder.addStroke(GestureDescription.StrokeDescription(path, 0, 1))
+            builder.addStroke(GestureDescription.StrokeDescription(path, 0, 10))
         }
         val cb = object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) { advance(my) }
@@ -70,7 +70,7 @@ class ClickService : AccessibilityService() {
         val ok = try { dispatchGesture(builder.build(), cb, null) } catch (e: Exception) { false }
         if (!ok) advance(my)
         // Watchdog: if Android never answers, continue anyway so it never stops
-        handler.postDelayed({ advance(my) }, 150)
+        handler.postDelayed({ advance(my) }, 1000)
     }
 
     private fun advance(my: Int) {
@@ -133,13 +133,13 @@ class ClickService : AccessibilityService() {
         val startBtn = Button(this).apply { text = "START" }
         val moveBtn = Button(this).apply { text = "MOVE: OFF" }
         val dotsBtn = Button(this).apply { text = "DOTS: 10" }
-        val label = TextView(this).apply { text = "5 ms"; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
-        val seek = SeekBar(this).apply { max = 95; progress = 0 }
+        val label = TextView(this).apply { text = "25 ms"; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
+        val seek = SeekBar(this).apply { max = 175; progress = 0 }
         val closeBtn = Button(this).apply { text = "CLOSE" }
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                intervalMs = (p + 5).toLong()
+                intervalMs = (p + 25).toLong()
                 label.text = "$intervalMs ms"
             }
             override fun onStartTrackingTouch(s: SeekBar?) {}

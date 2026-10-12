@@ -1,0 +1,3 @@
+<resources>
+    <string name="service_desc">Performs automatic taps at a chosen point on screen.</string>
+</resources>

@@ -2,6 +2,7 @@ package com.nish.autoclicker
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -20,22 +21,50 @@ import android.widget.TextView
 
 class ClickService : AccessibilityService() {
 
+    companion object {
+        const val DEF_GAME = "com.computerlunch.evolution"
+    }
+
     private lateinit var wm: WindowManager
     private var panel: View? = null
+    private lateinit var panelParams: WindowManager.LayoutParams
+    private var closeView: TextView? = null
     private val dots = ArrayList<View>()
     private val dotParams = ArrayList<WindowManager.LayoutParams>()
     private val handler = Handler(Looper.getMainLooper())
+    private lateinit var startBtn: Button
+    private lateinit var moveBtn: Button
     private var running = false
     private var moveMode = false
+    private var gameVisible = false
+    private var gamePkg = DEF_GAME
+    private var lastSeen = ""
     private var intervalMs = 25L
     private var dotCount = 10
     private var token = 0
+    private var closeNear = false
 
     private val baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val p = event.packageName?.toString() ?: return
+        if (p == packageName || p == "com.android.systemui" || p.contains("inputmethod")) return
+        val sp = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        if (p != lastSeen) {
+            lastSeen = p
+            sp.edit().putString("last", p).apply()
+        }
+        gamePkg = (sp.getString("game", DEF_GAME) ?: DEF_GAME).trim()
+        val inGame = p == gamePkg
+        if (inGame != gameVisible) {
+            gameVisible = inGame
+            applyVisibility()
+        }
+    }
+
     override fun onInterrupt() { stopClicking() }
 
     override fun onServiceConnected() {
@@ -69,7 +98,6 @@ class ClickService : AccessibilityService() {
         }
         val ok = try { dispatchGesture(builder.build(), cb, null) } catch (e: Exception) { false }
         if (!ok) advance(my)
-        // Watchdog: if Android never answers, continue anyway so it never stops
         handler.postDelayed({ advance(my) }, 1000)
     }
 
@@ -83,19 +111,45 @@ class ClickService : AccessibilityService() {
         running = false
         token++
         handler.removeCallbacksAndMessages(null)
+        if (::startBtn.isInitialized) startBtn.text = "START"
     }
+// end s1
 
     private fun buildOverlay() {
         val dm = resources.displayMetrics
         val type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
         val size = dp(44)
 
+        // X target, visible only while the panel is being dragged
+        val cv = TextView(this).apply {
+            text = "X"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            textSize = 22f
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xCC444444.toInt())
+            }
+            visibility = View.GONE
+        }
+        val cp = WindowManager.LayoutParams(
+            dp(64), dp(64), type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = dp(60) }
+        closeView = cv
+        wm.addView(cv, cp)
+
+        // tap circles (invisible unless MOVE is ON)
         for (i in 0 until 10) {
             val dotView = TextView(this).apply {
                 text = "${i + 1}"
                 gravity = Gravity.CENTER
                 setTextColor(Color.WHITE)
                 textSize = 14f
+                alpha = 0f
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(0x99FF0000.toInt())
@@ -130,12 +184,11 @@ class ClickService : AccessibilityService() {
             wm.addView(dotView, lp)
         }
 
-        val startBtn = Button(this).apply { text = "START" }
-        val moveBtn = Button(this).apply { text = "MOVE: OFF" }
+        startBtn = Button(this).apply { text = "START" }
+        moveBtn = Button(this).apply { text = "MOVE: OFF" }
         val dotsBtn = Button(this).apply { text = "DOTS: 10" }
         val label = TextView(this).apply { text = "25 ms"; setTextColor(Color.WHITE); gravity = Gravity.CENTER }
         val seek = SeekBar(this).apply { max = 175; progress = 0 }
-        val closeBtn = Button(this).apply { text = "CLOSE" }
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
@@ -148,7 +201,7 @@ class ClickService : AccessibilityService() {
 
         startBtn.setOnClickListener {
             if (running) {
-                stopClicking(); startBtn.text = "START"
+                stopClicking()
             } else {
                 if (moveMode) moveBtn.performClick()
                 running = true; startBtn.text = "STOP"; handler.post(tick)
@@ -157,11 +210,12 @@ class ClickService : AccessibilityService() {
 
         moveBtn.setOnClickListener {
             moveMode = !moveMode
-            if (moveMode) { stopClicking(); startBtn.text = "START" }
+            if (moveMode) stopClicking()
             moveBtn.text = if (moveMode) "MOVE: ON" else "MOVE: OFF"
             for (i in 0 until dots.size) {
                 dotParams[i].flags = if (moveMode) baseFlags
                 else baseFlags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                dots[i].alpha = if (moveMode) 1f else 0f
                 wm.updateViewLayout(dots[i], dotParams[i])
             }
         }
@@ -169,19 +223,14 @@ class ClickService : AccessibilityService() {
         dotsBtn.setOnClickListener {
             dotCount = if (dotCount >= 10) 1 else dotCount + 1
             dotsBtn.text = "DOTS: $dotCount"
-            for (i in 0 until dots.size) {
-                dots[i].visibility = if (i < dotCount) View.VISIBLE else View.GONE
-            }
+            applyVisibility()
         }
-
-        closeBtn.setOnClickListener {
-            stopClicking(); removeOverlay(); disableSelf()
-        }
+// end s2
 
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(startBtn); addView(moveBtn); addView(dotsBtn)
-            addView(label); addView(seek); addView(closeBtn)
+            addView(label); addView(seek)
         }
         val handle = TextView(this).apply {
             text = "DRAG HERE"
@@ -206,7 +255,7 @@ class ClickService : AccessibilityService() {
             setPadding(dp(8), dp(4), dp(8), dp(8))
             addView(header); addView(body)
         }
-        val boxParams = WindowManager.LayoutParams(
+        panelParams = WindowManager.LayoutParams(
             dp(150), WindowManager.LayoutParams.WRAP_CONTENT, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START; x = dp(4); y = dm.heightPixels / 2 }
@@ -214,11 +263,22 @@ class ClickService : AccessibilityService() {
         var px = 0; var py = 0; var ptx = 0f; var pty = 0f
         handle.setOnTouchListener { _, e ->
             when (e.action) {
-                MotionEvent.ACTION_DOWN -> { px = boxParams.x; py = boxParams.y; ptx = e.rawX; pty = e.rawY }
+                MotionEvent.ACTION_DOWN -> {
+                    px = panelParams.x; py = panelParams.y; ptx = e.rawX; pty = e.rawY
+                    closeNear = false
+                    closeView?.visibility = View.VISIBLE
+                }
                 MotionEvent.ACTION_MOVE -> {
-                    boxParams.x = px + (e.rawX - ptx).toInt()
-                    boxParams.y = py + (e.rawY - pty).toInt()
-                    wm.updateViewLayout(box, boxParams)
+                    panelParams.x = px + (e.rawX - ptx).toInt()
+                    panelParams.y = py + (e.rawY - pty).toInt()
+                    wm.updateViewLayout(box, panelParams)
+                    val near = nearClose(e.rawX, e.rawY)
+                    if (near != closeNear) { closeNear = near; setCloseLook(near) }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    closeView?.visibility = View.GONE
+                    setCloseLook(false)
+                    if (closeNear) { closeNear = false; shutDown() }
                 }
             }
             true
@@ -227,17 +287,51 @@ class ClickService : AccessibilityService() {
             val hide = body.visibility == View.VISIBLE
             body.visibility = if (hide) View.GONE else View.VISIBLE
             minBtn.text = if (hide) "+" else "-"
-            boxParams.width = if (hide) dp(130) else dp(150)
-            wm.updateViewLayout(box, boxParams)
+            panelParams.width = if (hide) dp(130) else dp(150)
+            wm.updateViewLayout(box, panelParams)
         }
         panel = box
-        wm.addView(box, boxParams)
+        wm.addView(box, panelParams)
+        applyVisibility()
+    }
+
+    private fun nearClose(x: Float, y: Float): Boolean {
+        val cv = closeView ?: return false
+        if (cv.width == 0) return false
+        val loc = IntArray(2)
+        cv.getLocationOnScreen(loc)
+        val dx = x - (loc[0] + cv.width / 2f)
+        val dy = y - (loc[1] + cv.height / 2f)
+        val r = dp(80).toFloat()
+        return dx * dx + dy * dy < r * r
+    }
+
+    private fun setCloseLook(near: Boolean) {
+        val cv = closeView ?: return
+        (cv.background as GradientDrawable).setColor(if (near) 0xFFE53935.toInt() else 0xCC444444.toInt())
+        cv.scaleX = if (near) 1.3f else 1f
+        cv.scaleY = if (near) 1.3f else 1f
+    }
+
+    // overlay is shown only while the game is in front
+    private fun applyVisibility() {
+        panel?.visibility = if (gameVisible) View.VISIBLE else View.GONE
+        for (i in 0 until dots.size) {
+            dots[i].visibility = if (gameVisible && i < dotCount) View.VISIBLE else View.GONE
+        }
+        if (!gameVisible) stopClicking()
+    }
+
+    private fun shutDown() {
+        stopClicking(); removeOverlay(); disableSelf()
     }
 
     private fun removeOverlay() {
         try { panel?.let { wm.removeView(it) } } catch (_: Exception) {}
         for (d in dots) { try { wm.removeView(d) } catch (_: Exception) {} }
+        try { closeView?.let { wm.removeView(it) } } catch (_: Exception) {}
         dots.clear(); dotParams.clear()
-        panel = null
+        panel = null; closeView = null
     }
 }
+// end s3

@@ -2,6 +2,7 @@ package com.nish.autoclicker
 
 import android.app.Activity
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.provider.Settings
 import android.view.ViewGroup
@@ -13,13 +14,22 @@ import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
-    private lateinit var targetView: TextView
+    private lateinit var listBox: LinearLayout
+    private lateinit var addLastBtn: Button
+    private lateinit var learnBtn: Button
     private lateinit var field: EditText
-    private lateinit var lastBtn: Button
 
     private fun label(pkg: String): String = try {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
     } catch (e: Exception) { pkg }
+
+    private fun apps(sp: SharedPreferences): MutableList<String> =
+        (sp.getString("apps", "") ?: "").split(",").map { it.trim() }
+            .filter { it.isNotEmpty() }.toMutableList()
+
+    private fun saveApps(sp: SharedPreferences, list: List<String>) {
+        sp.edit().putString("apps", list.joinToString(",")).apply()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,39 +42,58 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             textSize = 16f
             text = "1. Tap Open Accessibility Settings, turn Cell Clicker ON.\n" +
-                "2. Open your game once. The app is picked up automatically.\n" +
-                "3. MOVE: ON shows the circles. Drag each to its spot.\n" +
-                "4. MOVE: OFF hides them. They still tap.\n" +
-                "5. Press START. To close, drag DRAG HERE down to the X.\n"
+                "2. Open your first app. It is added automatically.\n" +
+                "3. For more apps: tap Add next app I open, then open that app.\n" +
+                "4. MOVE: ON shows the circles. Drag each to its spot.\n" +
+                "5. MOVE: OFF hides them. They still tap.\n" +
+                "6. Press START. To close, drag DRAG HERE down to the X.\n"
         })
-        targetView = TextView(this).apply { textSize = 16f; setPadding(0, pad / 2, 0, pad / 2) }
-        root.addView(targetView)
-        root.addView(TextView(this).apply { text = "Target app package (edit if needed):" })
-        field = EditText(this)
-        root.addView(field)
-        root.addView(Button(this).apply {
-            text = "Save"
-            setOnClickListener {
-                sp.edit().putString("game", field.text.toString().trim()).apply()
-                Toast.makeText(this@MainActivity, "Saved", Toast.LENGTH_SHORT).show()
-                refresh()
-            }
+        root.addView(TextView(this).apply {
+            text = "Apps where the clicker works:"
+            textSize = 16f
+            setPadding(0, pad / 2, 0, pad / 4)
         })
-        lastBtn = Button(this)
-        lastBtn.setOnClickListener {
+        listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(listBox)
+
+        learnBtn = Button(this)
+        learnBtn.setOnClickListener {
+            sp.edit().putBoolean("learn", !sp.getBoolean("learn", false)).apply()
+            refresh()
+        }
+        root.addView(learnBtn)
+
+        addLastBtn = Button(this)
+        addLastBtn.setOnClickListener {
             val last = (sp.getString("last", "") ?: "").trim()
             if (last.isNotEmpty()) {
-                sp.edit().putString("game", last).apply()
+                val l = apps(sp)
+                if (!l.contains(last)) { l.add(last); saveApps(sp, l) }
                 refresh()
             }
         }
-        root.addView(lastBtn)
+        root.addView(addLastBtn)
+
+        root.addView(TextView(this).apply { text = "\nOr type a package name:" })
+        field = EditText(this)
+        root.addView(field)
         root.addView(Button(this).apply {
-            text = "Forget target (learn again)"
+            text = "Add package"
             setOnClickListener {
-                sp.edit().putString("game", "").putString("last", "").apply()
+                val p = field.text.toString().trim()
+                if (p.isNotEmpty()) {
+                    val l = apps(sp)
+                    if (!l.contains(p)) { l.add(p); saveApps(sp, l) }
+                    field.setText("")
+                    refresh()
+                }
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Remove all apps"
+            setOnClickListener {
+                sp.edit().putString("apps", "").putString("last", "").putBoolean("learn", false).apply()
                 refresh()
-                Toast.makeText(this@MainActivity, "Open your game to set it again", Toast.LENGTH_LONG).show()
             }
         })
         root.addView(Button(this).apply {
@@ -78,17 +107,34 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val sp = getSharedPreferences("cfg", MODE_PRIVATE)
-        var game = (sp.getString("game", "") ?: "").trim()
+        val list = apps(sp)
         val last = (sp.getString("last", "") ?: "").trim()
-        if (game.isEmpty() && last.isNotEmpty()) {
-            game = last
-            sp.edit().putString("game", game).apply()
+        listBox.removeAllViews()
+        if (list.isEmpty()) {
+            listBox.addView(TextView(this).apply {
+                text = "No apps yet. Open your first app and it is added automatically."
+            })
         }
-        field.setText(game)
-        targetView.text = if (game.isEmpty())
-            "Target app: not set yet. Open your game once and it is picked up automatically."
-        else "Target app: " + label(game) + "\n(" + game + ")"
-        lastBtn.text = if (last.isEmpty()) "Use last app (none yet)" else "Use last app: " + label(last)
+        for (pkg in list) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(TextView(this).apply {
+                text = label(pkg) + "\n(" + pkg + ")"
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(Button(this).apply {
+                text = "Remove"
+                setOnClickListener {
+                    val l = apps(sp)
+                    l.remove(pkg)
+                    saveApps(sp, l)
+                    refresh()
+                }
+            })
+            listBox.addView(row)
+        }
+        addLastBtn.text = if (last.isEmpty()) "Add last app (none yet)" else "Add last app: " + label(last)
+        learnBtn.text = if (sp.getBoolean("learn", false))
+            "Waiting... open the app now (tap to cancel)" else "Add next app I open"
     }
 
     override fun onResume() {

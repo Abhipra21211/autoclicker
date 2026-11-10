@@ -3,6 +3,7 @@ package com.nish.autoclicker
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -76,24 +77,27 @@ class ClickService : AccessibilityService() {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(p, 0)).toString()
     } catch (e: Exception) { p }
 
+    private fun targets(sp: SharedPreferences): List<String> =
+        (sp.getString("apps", "") ?: "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val p = event.packageName?.toString() ?: return
         if (p == packageName || p == "com.android.systemui" || p.contains("inputmethod")) return
         val sp = getSharedPreferences("cfg", Context.MODE_PRIVATE)
-        gamePkg = (sp.getString("game", "") ?: "").trim()
+        var list = targets(sp)
         val user = isUserApp(p) && !isHome(p)
         if (user && p != lastSeen) {
             lastSeen = p
             sp.edit().putString("last", p).apply()
         }
-        if (gamePkg.isEmpty()) {
-            if (!user) return
-            gamePkg = p
-            sp.edit().putString("game", p).apply()
-            Toast.makeText(this, "Clicker set for " + appLabel(p), Toast.LENGTH_LONG).show()
+        val learn = sp.getBoolean("learn", false)
+        if (user && !list.contains(p) && (list.isEmpty() || learn)) {
+            list = list + p
+            sp.edit().putString("apps", list.joinToString(",")).putBoolean("learn", false).apply()
+            Toast.makeText(this, "Clicker added for " + appLabel(p), Toast.LENGTH_LONG).show()
         }
-        val inGame = p == gamePkg
+        val inGame = list.contains(p)
         if (inGame != gameVisible) {
             gameVisible = inGame
             applyVisibility()

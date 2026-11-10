@@ -18,6 +18,7 @@ class MainActivity : Activity() {
     private lateinit var addLastBtn: Button
     private lateinit var learnBtn: Button
     private lateinit var field: EditText
+    private lateinit var diag: TextView
 
     private fun label(pkg: String): String = try {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
@@ -26,6 +27,11 @@ class MainActivity : Activity() {
     private fun apps(sp: SharedPreferences): MutableList<String> =
         (sp.getString("apps", "") ?: "").split(",").map { it.trim() }
             .filter { it.isNotEmpty() }.toMutableList()
+
+    private fun lastOrRaw(sp: SharedPreferences): String {
+        val l = (sp.getString("last", "") ?: "").trim()
+        return if (l.isNotEmpty()) l else (sp.getString("raw", "") ?: "").trim()
+    }
 
     private fun saveApps(sp: SharedPreferences, list: List<String>) {
         sp.edit().putString("apps", list.joinToString(",")).apply()
@@ -48,6 +54,8 @@ class MainActivity : Activity() {
                 "5. MOVE: OFF hides them. They still tap.\n" +
                 "6. Press START. To close, drag DRAG HERE down to the X.\n"
         })
+        diag = TextView(this).apply { textSize = 14f; setPadding(0, 0, 0, pad / 2) }
+        root.addView(diag)
         root.addView(TextView(this).apply {
             text = "Apps where the clicker works:"
             textSize = 16f
@@ -65,7 +73,7 @@ class MainActivity : Activity() {
 
         addLastBtn = Button(this)
         addLastBtn.setOnClickListener {
-            val last = (sp.getString("last", "") ?: "").trim()
+            val last = lastOrRaw(sp)
             if (last.isNotEmpty()) {
                 val l = apps(sp)
                 if (!l.contains(last)) { l.add(last); saveApps(sp, l) }
@@ -107,8 +115,15 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val sp = getSharedPreferences("cfg", MODE_PRIVATE)
+        val conn = sp.getLong("conn", 0L)
+        val connTxt = if (conn == 0L) "NO - turn it on in Accessibility settings"
+            else java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(conn))
+        val raw = (sp.getString("raw", "") ?: "").trim()
+        diag.text = "Service connected: " + connTxt +
+            "\nWindow events seen: " + sp.getInt("ev", 0) +
+            "\nLast other app seen: " + (if (raw.isEmpty()) "(none)" else label(raw) + " (" + raw + ")")
         val list = apps(sp)
-        val last = (sp.getString("last", "") ?: "").trim()
+        val last = lastOrRaw(sp)
         listBox.removeAllViews()
         if (list.isEmpty()) {
             listBox.addView(TextView(this).apply {

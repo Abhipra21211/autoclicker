@@ -54,13 +54,21 @@ class ClickService : AccessibilityService() {
         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
     private var homePkg: String? = null
+    private var evCount = 0
+
+    private fun looksSystem(p: String): Boolean {
+        val pre = arrayOf("com.android.", "com.google.android.", "android.", "com.miui.", "com.xiaomi.",
+            "com.coloros.", "com.oplus.", "com.oppo.", "com.heytap.", "com.vivo.", "com.samsung.",
+            "com.sec.android.", "com.realme.", "com.huawei.", "com.mediatek.", "com.qualcomm.")
+        return pre.any { p.startsWith(it) } || p.contains("launcher")
+    }
 
     private fun isUserApp(p: String): Boolean {
         return try {
             val ai = packageManager.getApplicationInfo(p, 0)
             val sys = ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP
             (ai.flags and sys) == 0
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { !looksSystem(p) }
     }
 
     private fun isHome(p: String): Boolean {
@@ -70,7 +78,7 @@ class ClickService : AccessibilityService() {
                 packageManager.resolveActivity(i, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName ?: ""
             } catch (e: Exception) { "" }
         }
-        return p == homePkg
+        return p == homePkg || p.contains("launcher")
     }
 
     private fun appLabel(p: String): String = try {
@@ -83,8 +91,13 @@ class ClickService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val p = event.packageName?.toString() ?: return
-        if (p == packageName || p == "com.android.systemui" || p.contains("inputmethod")) return
         val sp = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        evCount++
+        val ed = sp.edit()
+        ed.putInt("ev", evCount)
+        if (p != packageName) ed.putString("raw", p)
+        ed.apply()
+        if (p == packageName || p == "com.android.systemui" || p.contains("inputmethod")) return
         var list = targets(sp)
         val user = isUserApp(p) && !isHome(p)
         if (user && p != lastSeen) {
@@ -109,6 +122,7 @@ class ClickService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        getSharedPreferences("cfg", Context.MODE_PRIVATE).edit().putLong("conn", System.currentTimeMillis()).apply()
         if (panel == null) buildOverlay()
     }
 

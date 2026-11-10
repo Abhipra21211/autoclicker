@@ -3,6 +3,10 @@ package com.nish.autoclicker
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.widget.Toast
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -37,7 +41,7 @@ class ClickService : AccessibilityService() {
     private var running = false
     private var moveMode = false
     private var gameVisible = false
-    private var gamePkg = DEF_GAME
+    private var gamePkg = ""
     private var lastSeen = ""
     private var intervalMs = 25L
     private var dotCount = 10
@@ -48,16 +52,47 @@ class ClickService : AccessibilityService() {
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
+    private var homePkg: String? = null
+
+    private fun isUserApp(p: String): Boolean {
+        return try {
+            val ai = packageManager.getApplicationInfo(p, 0)
+            val sys = ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP
+            (ai.flags and sys) == 0
+        } catch (e: Exception) { false }
+    }
+
+    private fun isHome(p: String): Boolean {
+        if (homePkg == null) {
+            homePkg = try {
+                val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                packageManager.resolveActivity(i, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName ?: ""
+            } catch (e: Exception) { "" }
+        }
+        return p == homePkg
+    }
+
+    private fun appLabel(p: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(p, 0)).toString()
+    } catch (e: Exception) { p }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val p = event.packageName?.toString() ?: return
         if (p == packageName || p == "com.android.systemui" || p.contains("inputmethod")) return
         val sp = getSharedPreferences("cfg", Context.MODE_PRIVATE)
-        if (p != lastSeen) {
+        gamePkg = (sp.getString("game", "") ?: "").trim()
+        val user = isUserApp(p) && !isHome(p)
+        if (user && p != lastSeen) {
             lastSeen = p
             sp.edit().putString("last", p).apply()
         }
-        gamePkg = (sp.getString("game", DEF_GAME) ?: DEF_GAME).trim()
+        if (gamePkg.isEmpty()) {
+            if (!user) return
+            gamePkg = p
+            sp.edit().putString("game", p).apply()
+            Toast.makeText(this, "Clicker set for " + appLabel(p), Toast.LENGTH_LONG).show()
+        }
         val inGame = p == gamePkg
         if (inGame != gameVisible) {
             gameVisible = inGame

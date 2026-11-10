@@ -13,7 +13,13 @@ import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
-    private lateinit var lastView: TextView
+    private lateinit var targetView: TextView
+    private lateinit var field: EditText
+    private lateinit var lastBtn: Button
+
+    private fun label(pkg: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (e: Exception) { pkg }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,22 +32,39 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             textSize = 16f
             text = "1. Tap Open Accessibility Settings, turn Cell Clicker ON.\n" +
-                "2. Open the game. The panel appears only inside the game.\n" +
-                "3. MOVE: ON shows the circles. Drag each one to its spot.\n" +
-                "4. MOVE: OFF hides the circles. They still tap.\n" +
-                "5. Press START. Set speed with the slider.\n" +
-                "6. To close: drag the DRAG HERE bar down to the X.\n"
+                "2. Open your game once. The app is picked up automatically.\n" +
+                "3. MOVE: ON shows the circles. Drag each to its spot.\n" +
+                "4. MOVE: OFF hides them. They still tap.\n" +
+                "5. Press START. To close, drag DRAG HERE down to the X.\n"
         })
-        lastView = TextView(this).apply { textSize = 14f }
-        root.addView(lastView)
-        root.addView(TextView(this).apply { text = "\nGame package name (overlay shows only in this app):" })
-        val game = EditText(this).apply { setText(sp.getString("game", ClickService.DEF_GAME)) }
-        root.addView(game)
+        targetView = TextView(this).apply { textSize = 16f; setPadding(0, pad / 2, 0, pad / 2) }
+        root.addView(targetView)
+        root.addView(TextView(this).apply { text = "Target app package (edit if needed):" })
+        field = EditText(this)
+        root.addView(field)
         root.addView(Button(this).apply {
             text = "Save"
             setOnClickListener {
-                sp.edit().putString("game", game.text.toString().trim()).apply()
+                sp.edit().putString("game", field.text.toString().trim()).apply()
                 Toast.makeText(this@MainActivity, "Saved", Toast.LENGTH_SHORT).show()
+                refresh()
+            }
+        })
+        lastBtn = Button(this)
+        lastBtn.setOnClickListener {
+            val last = (sp.getString("last", "") ?: "").trim()
+            if (last.isNotEmpty()) {
+                sp.edit().putString("game", last).apply()
+                refresh()
+            }
+        }
+        root.addView(lastBtn)
+        root.addView(Button(this).apply {
+            text = "Forget target (learn again)"
+            setOnClickListener {
+                sp.edit().putString("game", "").putString("last", "").apply()
+                refresh()
+                Toast.makeText(this@MainActivity, "Open your game to set it again", Toast.LENGTH_LONG).show()
             }
         })
         root.addView(Button(this).apply {
@@ -53,9 +76,23 @@ class MainActivity : Activity() {
         setContentView(scroll)
     }
 
+    private fun refresh() {
+        val sp = getSharedPreferences("cfg", MODE_PRIVATE)
+        var game = (sp.getString("game", "") ?: "").trim()
+        val last = (sp.getString("last", "") ?: "").trim()
+        if (game.isEmpty() && last.isNotEmpty()) {
+            game = last
+            sp.edit().putString("game", game).apply()
+        }
+        field.setText(game)
+        targetView.text = if (game.isEmpty())
+            "Target app: not set yet. Open your game once and it is picked up automatically."
+        else "Target app: " + label(game) + "\n(" + game + ")"
+        lastBtn.text = if (last.isEmpty()) "Use last app (none yet)" else "Use last app: " + label(last)
+    }
+
     override fun onResume() {
         super.onResume()
-        val sp = getSharedPreferences("cfg", MODE_PRIVATE)
-        lastView.text = "Last other app seen: " + sp.getString("last", "(none yet, open the game first)")
+        refresh()
     }
 }
